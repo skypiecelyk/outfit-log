@@ -10,6 +10,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" href="icon-192.png" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropper/1.6.1/cropper.min.css" />
 <title>코디 로그</title>
 <style>
   :root{
@@ -36,7 +37,7 @@
   }
   .app{ max-width:760px; margin:0 auto; }
 
-  .header{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:14px; }
+  .header{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:14px; flex-wrap:wrap; gap:10px; }
   .eyebrow{ font-size:11px; letter-spacing:0.14em; color:var(--muted); text-transform:uppercase; margin:0 0 4px; }
   .title{ font-size:26px; font-weight:600; margin:0; letter-spacing:-0.01em; }
   .view-toggle{ display:flex; gap:2px; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:3px; }
@@ -138,6 +139,62 @@
     transition:opacity .25s; z-index:50;
   }
   .toast.show{ opacity:1; }
+
+  .crop-overlay{
+    position:fixed; inset:0; background:rgba(8,8,9,0.92); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .crop-panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:10px;
+    padding:16px; width:100%; max-width:420px;
+  }
+  .crop-hint{ font-size:11px; color:var(--muted); margin:0 0 12px; }
+  .crop-stage{
+    width:100%; height:380px; background:#000; border-radius:6px; overflow:hidden;
+    margin-bottom:8px;
+  }
+  .crop-stage img{ display:block; max-width:100%; }
+  .crop-zoom{ display:flex; align-items:center; gap:10px; margin:10px 0 16px; }
+  .crop-zoom span{ font-size:16px; color:var(--muted); }
+  .crop-zoom input[type=range]{ flex:1; accent-color:var(--accent); }
+  .crop-actions{ display:flex; justify-content:flex-end; gap:8px; }
+
+  .cropper-view-box, .cropper-face{ border-radius:0; }
+  .cropper-line, .cropper-point{ background-color:var(--accent); }
+  .cropper-view-box{ outline-color:var(--accent); }
+
+  .inspo-hint{ font-size:12px; color:var(--muted); margin:0 0 14px; }
+  .season-tabs{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .season-tabs button{
+    font-family:inherit; font-size:12px; color:var(--muted); background:var(--surface);
+    border:1px solid var(--line); border-radius:999px; padding:7px 16px; cursor:pointer;
+  }
+  .season-tabs button.active{ background:var(--accent-dim); color:var(--accent); border-color:var(--accent); }
+
+  .inspo-grid{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+  }
+  .inspo-tile{
+    position:relative; aspect-ratio:4/5; border-radius:var(--radius); overflow:hidden;
+    background:var(--surface); border:1px solid var(--line); cursor:pointer;
+  }
+  .inspo-tile img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .inspo-add{
+    display:flex; align-items:center; justify-content:center;
+    background:var(--surface); border:1px dashed var(--line); color:var(--muted); font-size:26px;
+  }
+  .inspo-add:hover{ border-color:var(--accent); color:var(--accent); }
+  .inspo-empty{ color:var(--muted); font-size:13px; padding:18px 4px; grid-column:1/-1; text-align:center; }
+
+  .lightbox-overlay{
+    position:fixed; inset:0; background:rgba(8,8,9,0.92); z-index:110;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .lightbox-box{ max-width:360px; width:100%; }
+  .lightbox-box img{
+    width:100%; max-height:64vh; object-fit:contain; border-radius:8px; margin-bottom:14px; background:#000;
+  }
+  .lightbox-actions{ display:flex; justify-content:flex-end; gap:8px; }
 </style>
 </head>
 <body>
@@ -150,6 +207,7 @@
     <div class="view-toggle">
       <button id="tabCal" class="active">캘린더</button>
       <button id="tabList">리스트</button>
+      <button id="tabInspo">인스피레이션</button>
     </div>
   </div>
 
@@ -158,7 +216,7 @@
     <button id="importBtn">백업 가져오기</button>
   </div>
 
-  <div class="month-nav">
+  <div class="month-nav" id="monthNav">
     <div class="label">
       <span class="month-kr" id="monthKr">6월</span>
       <span class="year-en" id="yearEn">2026</span>
@@ -181,16 +239,55 @@
     <div class="list" id="listContainer"></div>
   </div>
 
+  <div id="inspoView" style="display:none;">
+    <p class="inspo-hint">다른 사람 코디 중에 마음에 든 사진을 계절별로 모아두는 공간이에요.</p>
+    <div class="season-tabs" id="seasonTabs">
+      <button data-season="spring">봄</button>
+      <button data-season="summer">여름</button>
+      <button data-season="fall">가을</button>
+      <button data-season="winter">겨울</button>
+    </div>
+    <div class="inspo-grid" id="inspoGrid"></div>
+  </div>
+
   <div class="detail" id="detail"></div>
+</div>
+
+<div class="lightbox-overlay" id="lightboxOverlay" style="display:none;">
+  <div class="lightbox-box">
+    <img id="lightboxImg" src="" alt="" />
+    <div class="lightbox-actions">
+      <button class="btn" id="lightboxCloseBtn">닫기</button>
+      <button class="btn danger" id="lightboxDeleteBtn">삭제</button>
+    </div>
+  </div>
 </div>
 
 <input type="file" id="fileInput" accept="image/*" />
 <input type="file" id="importInput" accept="application/json" />
 <div class="toast" id="toast"></div>
 
+<div class="crop-overlay" id="cropOverlay" style="display:none;">
+  <div class="crop-panel">
+    <p class="crop-hint">손가락으로 끌어서 위치를 잡고, 슬라이더로 확대/축소해서 원하는 만큼 잘라보세요.</p>
+    <div class="crop-stage"><img id="cropImage" src="" alt="" /></div>
+    <div class="crop-zoom">
+      <span>－</span>
+      <input type="range" id="cropZoomRange" min="0" max="100" value="0" />
+      <span>＋</span>
+    </div>
+    <div class="crop-actions">
+      <button class="btn" id="cropCancelBtn">취소</button>
+      <button class="btn primary" id="cropConfirmBtn">이 사진 사용하기</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropper/1.6.1/cropper.min.js"></script>
 <script>
 (function(){
   const KEY_PREFIX = 'outfit:';
+  const INSPO_PREFIX = 'inspo:';
   const pad = n => String(n).padStart(2,'0');
   const dowNames = ['일','월','화','수','목','금','토'];
 
@@ -254,29 +351,94 @@
     return cache;
   }
 
-  function resizeImage(file){
-    return new Promise((resolve,reject)=>{
-      const reader = new FileReader();
-      reader.onload = (e)=>{
-        const img = new Image();
-        img.onload = ()=>{
-          const maxW = 640;
-          const scale = Math.min(1, maxW/img.width);
-          const w = Math.round(img.width*scale);
-          const h = Math.round(img.height*scale);
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img,0,0,w,h);
-          resolve(canvas.toDataURL('image/jpeg',0.72));
-        };
-        img.onerror = reject;
-        img.src = e.target.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // ---- crop modal ----
+  const cropOverlay = document.getElementById('cropOverlay');
+  const cropImageEl = document.getElementById('cropImage');
+  const cropZoomRange = document.getElementById('cropZoomRange');
+  let cropperInstance = null;
+  let uploadTarget = null; // { type:'date', date } or { type:'inspo', season }
+
+  function openCropper(file){
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      cropImageEl.src = e.target.result;
+      cropOverlay.style.display = 'flex';
+      if(cropperInstance){ cropperInstance.destroy(); cropperInstance = null; }
+      cropperInstance = new Cropper(cropImageEl, {
+        aspectRatio: 4/5,
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 1,
+        background: false,
+        guides: false,
+        center: false,
+        highlight: false,
+        zoomOnWheel: false,
+        ready(){
+          cropZoomRange.value = 0;
+        }
+      });
+    };
+    reader.readAsDataURL(file);
   }
+
+  function closeCropper(){
+    cropOverlay.style.display = 'none';
+    if(cropperInstance){ cropperInstance.destroy(); cropperInstance = null; }
+    cropImageEl.src = '';
+  }
+
+  let lastZoom = 0;
+  cropZoomRange.addEventListener('input', ()=>{
+    if(!cropperInstance) return;
+    const val = parseFloat(cropZoomRange.value);
+    const delta = (val - lastZoom) / 100;
+    lastZoom = val;
+    cropperInstance.zoom(delta * 2);
+  });
+
+  document.getElementById('cropCancelBtn').onclick = ()=>{
+    closeCropper();
+    uploadTarget = null;
+  };
+
+  document.getElementById('cropConfirmBtn').onclick = ()=>{
+    if(!cropperInstance || !uploadTarget) return;
+    const canvas = cropperInstance.getCroppedCanvas({
+      width: 640,
+      height: 800,
+      imageSmoothingQuality: 'high'
+    });
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+
+    if(uploadTarget.type === 'date'){
+      const dateStr = uploadTarget.date;
+      const ok = lsSet(`${KEY_PREFIX}${dateStr}`, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
+      if(!ok){
+        alert('저장 공간이 부족해요. 백업 내보내기로 오래된 기록을 따로 저장해두고, 일부 사진을 정리해주세요.');
+        closeCropper();
+        uploadTarget = null;
+        return;
+      }
+      monthCache[dateStr] = dataUrl;
+      closeCropper();
+      uploadTarget = null;
+      refreshAfterChange(dateStr);
+    } else if(uploadTarget.type === 'inspo'){
+      const season = uploadTarget.season;
+      const key = `${INSPO_PREFIX}${season}:${Date.now()}`;
+      const ok = lsSet(key, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
+      if(!ok){
+        alert('저장 공간이 부족해요. 백업 내보내기로 정리해주세요.');
+        closeCropper();
+        uploadTarget = null;
+        return;
+      }
+      closeCropper();
+      uploadTarget = null;
+      renderInspoGrid(season);
+    }
+  };
 
   function renderCalendar(){
     monthKr.textContent = `${viewMonth+1}월`;
@@ -429,24 +591,16 @@
     `).join('');
   }
 
-  let pendingDate = null;
   function triggerUpload(dateStr){
-    pendingDate = dateStr;
+    uploadTarget = { type:'date', date:dateStr };
     fileInput.value = '';
     fileInput.click();
   }
 
-  fileInput.addEventListener('change', async (e)=>{
+  fileInput.addEventListener('change', (e)=>{
     const file = e.target.files[0];
-    if(!file || !pendingDate) return;
-    const dataUrl = await resizeImage(file);
-    const ok = lsSet(`${KEY_PREFIX}${pendingDate}`, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
-    if(!ok){
-      alert('저장 공간이 부족해요. 백업 내보내기로 오래된 기록을 따로 저장해두고, 일부 사진을 정리해주세요.');
-      return;
-    }
-    monthCache[pendingDate] = dataUrl;
-    refreshAfterChange(pendingDate);
+    if(!file || !uploadTarget) return;
+    openCropper(file);
   });
 
   function deletePhoto(dateStr){
@@ -473,13 +627,103 @@
     currentTab = tab;
     document.getElementById('tabCal').classList.toggle('active', tab==='cal');
     document.getElementById('tabList').classList.toggle('active', tab==='list');
+    document.getElementById('tabInspo').classList.toggle('active', tab==='inspo');
     document.getElementById('calView').style.display = tab==='cal' ? '' : 'none';
     document.getElementById('listView').style.display = tab==='list' ? '' : 'none';
+    document.getElementById('inspoView').style.display = tab==='inspo' ? '' : 'none';
+    document.getElementById('monthNav').style.display = tab==='inspo' ? 'none' : '';
+    document.getElementById('detail').style.display = tab==='inspo' ? 'none' : '';
     if(tab==='list') renderList();
+    if(tab==='inspo') renderInspoGrid(currentSeason);
   }
 
   document.getElementById('tabCal').onclick = ()=>switchTab('cal');
   document.getElementById('tabList').onclick = ()=>switchTab('list');
+  document.getElementById('tabInspo').onclick = ()=>switchTab('inspo');
+
+  // ---- inspiration board (season-based) ----
+  const seasons = [
+    {key:'spring', label:'봄'},
+    {key:'summer', label:'여름'},
+    {key:'fall', label:'가을'},
+    {key:'winter', label:'겨울'}
+  ];
+  function seasonFromMonth(monthIndex0){
+    const m = monthIndex0 + 1;
+    if(m>=3 && m<=5) return 'spring';
+    if(m>=6 && m<=8) return 'summer';
+    if(m>=9 && m<=11) return 'fall';
+    return 'winter';
+  }
+  let currentSeason = seasonFromMonth(today.getMonth());
+
+  const seasonTabsEl = document.getElementById('seasonTabs');
+  seasonTabsEl.querySelectorAll('button').forEach(btn=>{
+    if(btn.getAttribute('data-season')===currentSeason) btn.classList.add('active');
+    btn.addEventListener('click', ()=>{
+      currentSeason = btn.getAttribute('data-season');
+      seasonTabsEl.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
+      renderInspoGrid(currentSeason);
+    });
+  });
+
+  function renderInspoGrid(season){
+    const grid = document.getElementById('inspoGrid');
+    const keys = lsListKeys(`${INSPO_PREFIX}${season}:`);
+    const items = keys.map(k=>{
+      const entry = parseEntry(lsGet(k));
+      return entry ? {key:k, img:entry.img, savedAt:entry.savedAt||0} : null;
+    }).filter(Boolean).sort((a,b)=>b.savedAt - a.savedAt);
+
+    let html = `<div class="inspo-tile inspo-add" id="inspoAddTile">＋</div>`;
+    if(items.length===0){
+      html += `<div class="inspo-empty">아직 모아둔 사진이 없어요.</div>`;
+    } else {
+      html += items.map(it=>`
+        <div class="inspo-tile" data-key="${it.key}">
+          <img src="${it.img}" alt="" />
+        </div>
+      `).join('');
+    }
+    grid.innerHTML = html;
+
+    document.getElementById('inspoAddTile').onclick = ()=>{
+      uploadTarget = { type:'inspo', season };
+      fileInput.value = '';
+      fileInput.click();
+    };
+    grid.querySelectorAll('.inspo-tile[data-key]').forEach(tile=>{
+      tile.addEventListener('click', ()=>{
+        openLightbox(tile.getAttribute('data-key'));
+      });
+    });
+  }
+
+  // ---- lightbox for inspiration items ----
+  const lightboxOverlay = document.getElementById('lightboxOverlay');
+  const lightboxImg = document.getElementById('lightboxImg');
+  let lightboxKey = null;
+
+  function openLightbox(key){
+    const entry = parseEntry(lsGet(key));
+    if(!entry) return;
+    lightboxKey = key;
+    lightboxImg.src = entry.img;
+    lightboxOverlay.style.display = 'flex';
+  }
+  function closeLightbox(){
+    lightboxOverlay.style.display = 'none';
+    lightboxImg.src = '';
+    lightboxKey = null;
+  }
+  document.getElementById('lightboxCloseBtn').onclick = closeLightbox;
+  document.getElementById('lightboxDeleteBtn').onclick = ()=>{
+    if(!lightboxKey) return;
+    if(!confirm('이 사진을 삭제할까요?')) return;
+    lsDelete(lightboxKey);
+    closeLightbox();
+    renderInspoGrid(currentSeason);
+  };
 
   document.getElementById('prevBtn').onclick = ()=>{
     viewMonth--; if(viewMonth<0){viewMonth=11; viewYear--;}
