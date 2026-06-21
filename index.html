@@ -315,23 +315,105 @@
 
   function dateStrOf(y,m,d){ return `${y}-${pad(m+1)}-${pad(d)}`; }
 
-  function lsGet(key){
-    try{ const v = localStorage.getItem(key); return v; }catch(e){ return null; }
+  // ---- storage layer: IndexedDB (much larger quota than localStorage) ----
+  const DB_NAME = 'outfitLogDB';
+  const STORE_NAME = 'kv';
+  let dbPromise = null;
+
+  function getDB(){
+    if(dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject)=>{
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = (e)=>{
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(STORE_NAME)){
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      req.onsuccess = ()=> resolve(req.result);
+      req.onerror = ()=> reject(req.error);
+    });
+    return dbPromise;
   }
-  function lsSet(key, value){
-    try{ localStorage.setItem(key, value); return true; }
-    catch(e){ return false; }
+
+  async function dbGet(key){
+    try{
+      const db = await getDB();
+      return await new Promise((resolve)=>{
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get(key);
+        req.onsuccess = ()=> resolve(req.result == null ? null : req.result);
+        req.onerror = ()=> resolve(null);
+      });
+    }catch(e){ return null; }
   }
-  function lsDelete(key){
-    try{ localStorage.removeItem(key); }catch(e){}
+
+  async function dbSet(key, value){
+    try{
+      const db = await getDB();
+      return await new Promise((resolve)=>{
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(value, key);
+        tx.oncomplete = ()=> resolve(true);
+        tx.onerror = ()=> resolve(false);
+        tx.onabort = ()=> resolve(false);
+      });
+    }catch(e){ return false; }
   }
-  function lsListKeys(prefix){
-    const out = [];
-    for(let i=0;i<localStorage.length;i++){
-      const k = localStorage.key(i);
-      if(k && k.startsWith(prefix)) out.push(k);
+
+  async function dbDelete(key){
+    try{
+      const db = await getDB();
+      return await new Promise((resolve)=>{
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete(key);
+        tx.oncomplete = ()=> resolve(true);
+        tx.onerror = ()=> resolve(false);
+      });
+    }catch(e){ return false; }
+  }
+
+  async function dbListKeys(prefix){
+    try{
+      const db = await getDB();
+      return await new Promise((resolve)=>{
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).getAllKeys();
+        req.onsuccess = ()=>{
+          const keys = req.result.filter(k => typeof k === 'string' && k.startsWith(prefix));
+          resolve(keys);
+        };
+        req.onerror = ()=> resolve([]);
+      });
+    }catch(e){ return []; }
+  }
+
+  // 예전(localStorage) 버전에서 저장된 데이터를 한 번만 IndexedDB로 옮긴다.
+  async function migrateFromLocalStorageIfNeeded(){
+    let lsKeys = [];
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i);
+        if(k && (k.startsWith(KEY_PREFIX) || k.startsWith(INSPO_PREFIX))) lsKeys.push(k);
+      }
+    }catch(e){ return; }
+    if(lsKeys.length===0) return;
+
+    let movedCount = 0;
+    for(const k of lsKeys){
+      let v = null;
+      try{ v = localStorage.getItem(k); }catch(e){ continue; }
+      if(v==null) continue;
+      const existing = await dbGet(k);
+      if(existing==null){
+        const ok = await dbSet(k, v);
+        if(ok) movedCount++;
+      }
     }
-    return out;
+    try{ lsKeys.forEach(k => localStorage.removeItem(k)); }catch(e){}
+    if(movedCount>0){
+      showToast(`기존 사진 ${movedCount}장을 더 넉넉한 저장공간으로 옮겼어요`);
+    }
   }
 
   function parseEntry(raw){
@@ -339,15 +421,15 @@
     try{ return JSON.parse(raw); }catch(e){ return null; }
   }
 
-  function loadMonth(y,m){
+  async function loadMonth(y,m){
     const prefix = `${KEY_PREFIX}${y}-${pad(m+1)}`;
-    const keys = lsListKeys(prefix);
+    const keys = await dbListKeys(prefix);
     const cache = {};
-    keys.forEach(k=>{
-      const entry = parseEntry(lsGet(k));
+    await Promise.all(keys.map(async k=>{
+      const entry = parseEntry(await dbGet(k));
       const dateStr = k.replace(KEY_PREFIX,'');
       cache[dateStr] = entry ? entry.img : null;
-    });
+    }));
     return cache;
   }
 
@@ -408,7 +490,7 @@
     uploadTarget = null;
   };
 
-  document.getElementById('cropConfirmBtn').onclick = ()=>{
+  document.getElementById('cropConfirmBtn').onclick = async ()=>{
     if(!cropperInstance || !uploadTarget) return;
     const canvas = cropperInstance.getCroppedCanvas({
       width: 640,
@@ -416,12 +498,13 @@
       imageSmoothingQuality: 'high'
     });
     const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    const target = uploadTarget;
 
-    if(uploadTarget.type === 'date'){
-      const dateStr = uploadTarget.date;
-      const ok = lsSet(`${KEY_PREFIX}${dateStr}`, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
+    if(target.type === 'date'){
+      const dateStr = target.date;
+      const ok = await dbSet(`${KEY_PREFIX}${dateStr}`, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
       if(!ok){
-        alert('저장 공간이 부족해요. 백업 내보내기로 오래된 기록을 따로 저장해두고, 일부 사진을 정리해주세요.');
+        alert('저장에 실패했어요. 저장 공간이 부족하거나 일시적인 오류일 수 있어요. 백업 내보내기로 정리해두고 다시 시도해주세요.');
         closeCropper();
         uploadTarget = null;
         return;
@@ -430,12 +513,12 @@
       closeCropper();
       uploadTarget = null;
       refreshAfterChange(dateStr);
-    } else if(uploadTarget.type === 'inspo'){
-      const season = uploadTarget.season;
+    } else if(target.type === 'inspo'){
+      const season = target.season;
       const key = `${INSPO_PREFIX}${season}:${Date.now()}`;
-      const ok = lsSet(key, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
+      const ok = await dbSet(key, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
       if(!ok){
-        alert('저장 공간이 부족해요. 백업 내보내기로 정리해주세요.');
+        alert('저장에 실패했어요. 저장 공간이 부족하거나 일시적인 오류일 수 있어요.');
         closeCropper();
         uploadTarget = null;
         return;
@@ -446,11 +529,12 @@
     }
   };
 
-  function renderCalendar(){
+  async function renderCalendar(){
     monthKr.textContent = `${viewMonth+1}월`;
     yearEn.textContent = String(viewYear);
+    calendarGrid.innerHTML = `<div class="loading">불러오는 중…</div>`;
 
-    monthCache = loadMonth(viewYear, viewMonth);
+    monthCache = await loadMonth(viewYear, viewMonth);
 
     const firstDow = new Date(viewYear, viewMonth, 1).getDay();
     const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
@@ -543,7 +627,7 @@
         ${img ? `<img src="${img}" alt="코디" />` : `<div class="empty-state"><span>＋</span>아직 사진이 없어요</div>`}
       </div>
       <div class="strip-title">이맘때 입었던 옷 <b>(${m}월 ${day}일)</b></div>
-      <div class="strip" id="strip"></div>
+      <div class="strip" id="strip"><div class="strip-empty">불러오는 중…</div></div>
     `;
 
     const actions = document.getElementById('detailActions');
@@ -562,9 +646,9 @@
     renderStrip(m, day, y);
   }
 
-  function renderStrip(month, day, excludeYear){
+  async function renderStrip(month, day, excludeYear){
     const stripEl = document.getElementById('strip');
-    const allKeys = lsListKeys(KEY_PREFIX);
+    const allKeys = await dbListKeys(KEY_PREFIX);
     const suffix = `-${pad(month)}-${pad(day)}`;
     const matches = allKeys
       .filter(k => k.endsWith(suffix))
@@ -580,10 +664,10 @@
       stripEl.innerHTML = `<div class="strip-empty">아직 비교할 기록이 없어요.</div>`;
       return;
     }
-    const valid = matches.map(m=>{
-      const entry = parseEntry(lsGet(m.key));
+    const valid = (await Promise.all(matches.map(async m=>{
+      const entry = parseEntry(await dbGet(m.key));
       return entry ? {year:m.year, img:entry.img} : null;
-    }).filter(Boolean);
+    }))).filter(Boolean);
 
     if(valid.length===0){
       stripEl.innerHTML = `<div class="strip-empty">아직 비교할 기록이 없어요.</div>`;
@@ -609,9 +693,9 @@
     openCropper(file);
   });
 
-  function deletePhoto(dateStr){
+  async function deletePhoto(dateStr){
     if(!confirm('이 날짜의 사진을 삭제할까요?')) return;
-    lsDelete(`${KEY_PREFIX}${dateStr}`);
+    await dbDelete(`${KEY_PREFIX}${dateStr}`);
     monthCache[dateStr] = null;
     refreshAfterChange(dateStr);
   }
@@ -648,12 +732,6 @@
   document.getElementById('tabInspo').onclick = ()=>switchTab('inspo');
 
   // ---- inspiration board (season-based) ----
-  const seasons = [
-    {key:'spring', label:'봄'},
-    {key:'summer', label:'여름'},
-    {key:'fall', label:'가을'},
-    {key:'winter', label:'겨울'}
-  ];
   function seasonFromMonth(monthIndex0){
     const m = monthIndex0 + 1;
     if(m>=3 && m<=5) return 'spring';
@@ -673,13 +751,14 @@
     });
   });
 
-  function renderInspoGrid(season){
+  async function renderInspoGrid(season){
     const grid = document.getElementById('inspoGrid');
-    const keys = lsListKeys(`${INSPO_PREFIX}${season}:`);
-    const items = keys.map(k=>{
-      const entry = parseEntry(lsGet(k));
+    grid.innerHTML = `<div class="loading">불러오는 중…</div>`;
+    const keys = await dbListKeys(`${INSPO_PREFIX}${season}:`);
+    const items = (await Promise.all(keys.map(async k=>{
+      const entry = parseEntry(await dbGet(k));
       return entry ? {key:k, img:entry.img, savedAt:entry.savedAt||0} : null;
-    }).filter(Boolean).sort((a,b)=>b.savedAt - a.savedAt);
+    }))).filter(Boolean).sort((a,b)=>b.savedAt - a.savedAt);
 
     let html = `<div class="inspo-tile inspo-add" id="inspoAddTile">＋</div>`;
     if(items.length===0){
@@ -710,8 +789,8 @@
   const lightboxImg = document.getElementById('lightboxImg');
   let lightboxKey = null;
 
-  function openLightbox(key){
-    const entry = parseEntry(lsGet(key));
+  async function openLightbox(key){
+    const entry = parseEntry(await dbGet(key));
     if(!entry) return;
     lightboxKey = key;
     lightboxImg.src = entry.img;
@@ -723,10 +802,10 @@
     lightboxKey = null;
   }
   document.getElementById('lightboxCloseBtn').onclick = closeLightbox;
-  document.getElementById('lightboxDeleteBtn').onclick = ()=>{
+  document.getElementById('lightboxDeleteBtn').onclick = async ()=>{
     if(!lightboxKey) return;
     if(!confirm('이 사진을 삭제할까요?')) return;
-    lsDelete(lightboxKey);
+    await dbDelete(lightboxKey);
     closeLightbox();
     renderInspoGrid(currentSeason);
   };
@@ -734,28 +813,28 @@
   document.getElementById('prevBtn').onclick = ()=>{
     viewMonth--; if(viewMonth<0){viewMonth=11; viewYear--;}
     selectedKey = null;
-    renderCalendar();
-    if(currentTab==='list') renderList();
+    renderCalendar().then(()=>{ if(currentTab==='list') renderList(); });
   };
   document.getElementById('nextBtn').onclick = ()=>{
     viewMonth++; if(viewMonth>11){viewMonth=0; viewYear++;}
     selectedKey = null;
-    renderCalendar();
-    if(currentTab==='list') renderList();
+    renderCalendar().then(()=>{ if(currentTab==='list') renderList(); });
   };
   document.getElementById('todayBtn').onclick = ()=>{
     viewYear = today.getFullYear(); viewMonth = today.getMonth();
     selectedKey = null;
-    renderCalendar();
-    if(currentTab==='list') renderList();
+    renderCalendar().then(()=>{ if(currentTab==='list') renderList(); });
   };
 
-  // backup export / import
-  document.getElementById('exportBtn').onclick = ()=>{
-    const keys = lsListKeys(KEY_PREFIX);
+  // backup export / import (날짜 기록 + 인스피레이션 보드 모두 포함)
+  document.getElementById('exportBtn').onclick = async ()=>{
+    const keys = [
+      ...(await dbListKeys(KEY_PREFIX)),
+      ...(await dbListKeys(INSPO_PREFIX))
+    ];
     if(keys.length===0){ showToast('백업할 기록이 없어요'); return; }
     const data = {};
-    keys.forEach(k=>{ data[k] = lsGet(k); });
+    for(const k of keys){ data[k] = await dbGet(k); }
     const blob = new Blob([JSON.stringify(data)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -777,16 +856,19 @@
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
-    reader.onload = (ev)=>{
+    reader.onload = async (ev)=>{
       try{
         const data = JSON.parse(ev.target.result);
         let count = 0;
-        Object.entries(data).forEach(([k,v])=>{
-          if(k.startsWith(KEY_PREFIX)){ lsSet(k, v); count++; }
-        });
+        for(const [k,v] of Object.entries(data)){
+          if(k.startsWith(KEY_PREFIX) || k.startsWith(INSPO_PREFIX)){
+            const ok = await dbSet(k, v);
+            if(ok) count++;
+          }
+        }
         showToast(`${count}개 기록을 가져왔어요`);
-        renderCalendar();
-        if(currentTab==='list') renderList();
+        renderCalendar().then(()=>{ if(currentTab==='list') renderList(); });
+        if(currentTab==='inspo') renderInspoGrid(currentSeason);
       }catch(err){
         alert('백업 파일을 읽을 수 없어요. 파일 형식을 확인해주세요.');
       }
@@ -794,7 +876,11 @@
     reader.readAsText(file);
   });
 
-  renderCalendar();
+  // ---- init ----
+  (async function init(){
+    await migrateFromLocalStorageIfNeeded();
+    await renderCalendar();
+  })();
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', ()=>{
