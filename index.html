@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#111113" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="코디로그" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+<title>코디 로그</title>
+<style>
+  :root{
+    --bg:#111113;
+    --surface:#1b1b1e;
+    --surface-2:#222226;
+    --line:#2c2c30;
+    --text:#f2f1ec;
+    --muted:#8d8a82;
+    --accent:#c2a878;
+    --accent-dim: rgba(194,168,120,0.16);
+    --danger:#b9543f;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif;
+    min-height:100vh;
+    padding:28px 20px 80px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app{ max-width:760px; margin:0 auto; }
+
+  .header{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:14px; }
+  .eyebrow{ font-size:11px; letter-spacing:0.14em; color:var(--muted); text-transform:uppercase; margin:0 0 4px; }
+  .title{ font-size:26px; font-weight:600; margin:0; letter-spacing:-0.01em; }
+  .view-toggle{ display:flex; gap:2px; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:3px; }
+  .view-toggle button{
+    border:none; background:transparent; color:var(--muted); font-size:12px; padding:7px 14px;
+    border-radius:999px; cursor:pointer; font-family:inherit;
+  }
+  .view-toggle button.active{ background:var(--accent-dim); color:var(--accent); }
+
+  .util-row{ display:flex; justify-content:flex-end; gap:8px; margin-bottom:18px; }
+  .util-row button{
+    font-family:inherit; font-size:11px; color:var(--muted); background:transparent;
+    border:1px solid var(--line); border-radius:999px; padding:5px 11px; cursor:pointer;
+  }
+  .util-row button:hover{ color:var(--accent); border-color:var(--accent); }
+
+  .month-nav{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .month-nav .label{ display:flex; align-items:baseline; gap:8px; }
+  .month-nav .month-kr{ font-size:19px; font-weight:600; }
+  .month-nav .year-en{ font-size:11px; letter-spacing:0.12em; color:var(--muted); }
+  .nav-btns{ display:flex; gap:6px; align-items:center; }
+  .nav-btns button, .today-btn{
+    background:var(--surface); border:1px solid var(--line); color:var(--text);
+    width:30px; height:30px; border-radius:999px; cursor:pointer; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .today-btn{ width:auto; padding:0 12px; font-size:12px; color:var(--muted); }
+  .nav-btns button:hover, .today-btn:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .weekdays{ display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:6px; }
+  .weekdays span{ text-align:center; font-size:11px; color:var(--muted); letter-spacing:0.06em; }
+  .calendar{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .cell{
+    position:relative; aspect-ratio:1/1; border-radius:var(--radius);
+    background:var(--surface); border:1px solid var(--line); overflow:hidden;
+    cursor:pointer; display:flex; align-items:flex-start; justify-content:flex-start;
+  }
+  .cell.empty{ background:transparent; border:none; cursor:default; }
+  .cell .daynum{ position:relative; z-index:2; font-size:11px; padding:5px 6px; color:var(--muted); }
+  .cell.has-photo .daynum{ color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.6); }
+  .cell img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
+  .cell.selected{ border-color:var(--accent); }
+  .cell.today{ box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .cell.empty-day:hover{ border-color:var(--accent); }
+  .cell.empty-day:hover::after{
+    content:"+"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:18px;
+  }
+
+  .list{ display:flex; flex-direction:column; gap:8px; }
+  .list-item{
+    display:flex; gap:12px; align-items:center; padding:8px; background:var(--surface);
+    border:1px solid var(--line); border-radius:var(--radius); cursor:pointer;
+  }
+  .list-item img{ width:46px; height:46px; object-fit:cover; border-radius:4px; }
+  .list-item .d{ font-size:13px; color:var(--text); }
+  .list-empty{ color:var(--muted); font-size:13px; padding:24px 0; text-align:center; }
+
+  .detail{ margin-top:26px; border-top:1px solid var(--line); padding-top:20px; }
+  .detail-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .detail-date{ font-size:16px; font-weight:600; }
+  .detail-date .dow{ font-size:12px; color:var(--muted); margin-left:6px; font-weight:400; }
+  .detail-actions{ display:flex; gap:8px; }
+  .btn{
+    font-family:inherit; font-size:12px; border-radius:999px; padding:7px 14px; cursor:pointer;
+    border:1px solid var(--line); background:var(--surface); color:var(--text);
+  }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#16140f; font-weight:600;}
+  .btn.danger{ color:var(--danger); border-color:var(--danger); background:transparent; }
+  .btn:hover{ border-color:var(--accent); }
+
+  .preview-area{
+    width:100%; aspect-ratio:4/5; max-width:280px; border-radius:var(--radius);
+    background:var(--surface); border:1px dashed var(--line);
+    display:flex; align-items:center; justify-content:center; overflow:hidden; margin-bottom:18px;
+  }
+  .preview-area img{ width:100%; height:100%; object-fit:cover; }
+  .preview-area .empty-state{ text-align:center; color:var(--muted); font-size:12px; padding:0 18px; }
+  .preview-area .empty-state span{ display:block; font-size:24px; margin-bottom:6px; }
+
+  .strip-title{ font-size:12px; color:var(--muted); letter-spacing:0.04em; margin:4px 0 10px; display:flex; align-items:center; gap:6px; }
+  .strip-title b{ color:var(--text); font-weight:600; }
+  .strip{ display:flex; gap:10px; overflow-x:auto; padding-bottom:6px; }
+  .strip-item{ flex:0 0 auto; width:84px; text-align:center; }
+  .strip-frame{
+    width:84px; height:104px; border-radius:4px; overflow:hidden; background:var(--surface-2);
+    border:1px solid var(--line); margin-bottom:6px;
+  }
+  .strip-frame img{ width:100%; height:100%; object-fit:cover; }
+  .strip-year{ font-size:11px; color:var(--muted); }
+  .strip-empty{ color:var(--muted); font-size:12px; padding:10px 0; }
+
+  input[type=file]{ display:none; }
+  .loading{ color:var(--muted); font-size:12px; padding:20px 0; text-align:center; }
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--surface); border:1px solid var(--accent); color:var(--text);
+    font-size:12px; padding:9px 16px; border-radius:999px; opacity:0; pointer-events:none;
+    transition:opacity .25s; z-index:50;
+  }
+  .toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="header">
+    <div>
+      <p class="eyebrow">OUTFIT DIARY</p>
+      <h1 class="title">코디 로그</h1>
+    </div>
+    <div class="view-toggle">
+      <button id="tabCal" class="active">캘린더</button>
+      <button id="tabList">리스트</button>
+    </div>
+  </div>
+
+  <div class="util-row">
+    <button id="exportBtn">백업 내보내기</button>
+    <button id="importBtn">백업 가져오기</button>
+  </div>
+
+  <div class="month-nav">
+    <div class="label">
+      <span class="month-kr" id="monthKr">6월</span>
+      <span class="year-en" id="yearEn">2026</span>
+    </div>
+    <div class="nav-btns">
+      <button id="prevBtn" title="이전 달">‹</button>
+      <button class="today-btn" id="todayBtn">오늘</button>
+      <button id="nextBtn" title="다음 달">›</button>
+    </div>
+  </div>
+
+  <div id="calView">
+    <div class="weekdays">
+      <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+    </div>
+    <div class="calendar" id="calendarGrid"></div>
+  </div>
+
+  <div id="listView" style="display:none;">
+    <div class="list" id="listContainer"></div>
+  </div>
+
+  <div class="detail" id="detail"></div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" capture="environment" />
+<input type="file" id="importInput" accept="application/json" />
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const KEY_PREFIX = 'outfit:';
+  const pad = n => String(n).padStart(2,'0');
+  const dowNames = ['일','월','화','수','목','금','토'];
+
+  const today = new Date();
+  let viewYear = today.getFullYear();
+  let viewMonth = today.getMonth();
+  let selectedKey = null;
+  let monthCache = {};
+  let currentTab = 'cal';
+
+  const calendarGrid = document.getElementById('calendarGrid');
+  const monthKr = document.getElementById('monthKr');
+  const yearEn = document.getElementById('yearEn');
+  const detailEl = document.getElementById('detail');
+  const fileInput = document.getElementById('fileInput');
+  const importInput = document.getElementById('importInput');
+  const listContainer = document.getElementById('listContainer');
+  const toastEl = document.getElementById('toast');
+
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(()=>toastEl.classList.remove('show'), 1800);
+  }
+
+  function dateStrOf(y,m,d){ return `${y}-${pad(m+1)}-${pad(d)}`; }
+
+  function lsGet(key){
+    try{ const v = localStorage.getItem(key); return v; }catch(e){ return null; }
+  }
+  function lsSet(key, value){
+    try{ localStorage.setItem(key, value); return true; }
+    catch(e){ return false; }
+  }
+  function lsDelete(key){
+    try{ localStorage.removeItem(key); }catch(e){}
+  }
+  function lsListKeys(prefix){
+    const out = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(prefix)) out.push(k);
+    }
+    return out;
+  }
+
+  function parseEntry(raw){
+    if(!raw) return null;
+    try{ return JSON.parse(raw); }catch(e){ return null; }
+  }
+
+  function loadMonth(y,m){
+    const prefix = `${KEY_PREFIX}${y}-${pad(m+1)}`;
+    const keys = lsListKeys(prefix);
+    const cache = {};
+    keys.forEach(k=>{
+      const entry = parseEntry(lsGet(k));
+      const dateStr = k.replace(KEY_PREFIX,'');
+      cache[dateStr] = entry ? entry.img : null;
+    });
+    return cache;
+  }
+
+  function resizeImage(file){
+    return new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onload = (e)=>{
+        const img = new Image();
+        img.onload = ()=>{
+          const maxW = 640;
+          const scale = Math.min(1, maxW/img.width);
+          const w = Math.round(img.width*scale);
+          const h = Math.round(img.height*scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img,0,0,w,h);
+          resolve(canvas.toDataURL('image/jpeg',0.72));
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderCalendar(){
+    monthKr.textContent = `${viewMonth+1}월`;
+    yearEn.textContent = String(viewYear);
+
+    monthCache = loadMonth(viewYear, viewMonth);
+
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+
+    let html = '';
+    for(let i=0;i<firstDow;i++){ html += `<div class="cell empty"></div>`; }
+
+    const isToday = (d)=> viewYear===today.getFullYear() && viewMonth===today.getMonth() && d===today.getDate();
+
+    for(let d=1; d<=daysInMonth; d++){
+      const dateStr = dateStrOf(viewYear, viewMonth, d);
+      const img = monthCache[dateStr];
+      const classes = ['cell'];
+      if(img) classes.push('has-photo'); else classes.push('empty-day');
+      if(isToday(d)) classes.push('today');
+      if(selectedKey === dateStr) classes.push('selected');
+      html += `<div class="${classes.join(' ')}" data-date="${dateStr}">
+        ${img ? `<img src="${img}" alt="" />` : ''}
+        <span class="daynum">${d}</span>
+      </div>`;
+    }
+    calendarGrid.innerHTML = html;
+
+    calendarGrid.querySelectorAll('.cell:not(.empty)').forEach(cell=>{
+      cell.addEventListener('click', ()=>{
+        selectDate(cell.getAttribute('data-date'));
+      });
+    });
+
+    if(!selectedKey){
+      const defaultDate = isToday_anyDay() || dateStrOf(viewYear, viewMonth, 1);
+      selectDate(defaultDate, true);
+    }
+  }
+
+  function isToday_anyDay(){
+    if(viewYear===today.getFullYear() && viewMonth===today.getMonth()){
+      return dateStrOf(viewYear, viewMonth, today.getDate());
+    }
+    return null;
+  }
+
+  function renderList(){
+    const entries = Object.entries(monthCache)
+      .filter(([,img])=>img)
+      .sort((a,b)=> a[0] < b[0] ? 1 : -1);
+
+    if(entries.length===0){
+      listContainer.innerHTML = `<div class="list-empty">이 달에 기록된 코디가 없어요.<br/>캘린더에서 날짜를 눌러 사진을 올려보세요.</div>`;
+      return;
+    }
+    listContainer.innerHTML = entries.map(([dateStr,img])=>{
+      const d = new Date(dateStr+'T00:00:00');
+      const dow = dowNames[d.getDay()];
+      return `<div class="list-item" data-date="${dateStr}">
+        <img src="${img}" alt="" />
+        <div class="d">${dateStr} <span style="color:var(--muted)">(${dow})</span></div>
+      </div>`;
+    }).join('');
+    listContainer.querySelectorAll('.list-item').forEach(item=>{
+      item.addEventListener('click', ()=>{
+        switchTab('cal');
+        selectDate(item.getAttribute('data-date'));
+      });
+    });
+  }
+
+  function selectDate(dateStr, skipRerenderCal){
+    selectedKey = dateStr;
+    if(!skipRerenderCal){
+      calendarGrid.querySelectorAll('.cell').forEach(c=>c.classList.remove('selected'));
+      const target = calendarGrid.querySelector(`[data-date="${dateStr}"]`);
+      if(target) target.classList.add('selected');
+    }
+    renderDetail(dateStr);
+  }
+
+  function renderDetail(dateStr){
+    const d = new Date(dateStr+'T00:00:00');
+    const dow = dowNames[d.getDay()];
+    const [y,m,day] = dateStr.split('-').map(Number);
+    let img = monthCache[dateStr];
+
+    detailEl.innerHTML = `
+      <div class="detail-head">
+        <div class="detail-date">${y}.${pad(m)}.${pad(day)} <span class="dow">${dow}요일</span></div>
+        <div class="detail-actions" id="detailActions"></div>
+      </div>
+      <div class="preview-area" id="previewArea">
+        ${img ? `<img src="${img}" alt="코디" />` : `<div class="empty-state"><span>＋</span>아직 사진이 없어요</div>`}
+      </div>
+      <div class="strip-title">이맘때 입었던 옷 <b>(${m}월 ${day}일)</b></div>
+      <div class="strip" id="strip"></div>
+    `;
+
+    const actions = document.getElementById('detailActions');
+    if(img){
+      actions.innerHTML = `<button class="btn" id="replaceBtn">다시 찍기</button><button class="btn danger" id="deleteBtn">삭제</button>`;
+      document.getElementById('replaceBtn').onclick = ()=>triggerUpload(dateStr);
+      document.getElementById('deleteBtn').onclick = ()=>deletePhoto(dateStr);
+    } else {
+      actions.innerHTML = `<button class="btn primary" id="uploadBtn">사진 올리기</button>`;
+      document.getElementById('uploadBtn').onclick = ()=>triggerUpload(dateStr);
+    }
+    document.getElementById('previewArea').onclick = ()=>{
+      if(!img) triggerUpload(dateStr);
+    };
+
+    renderStrip(m, day, y);
+  }
+
+  function renderStrip(month, day, excludeYear){
+    const stripEl = document.getElementById('strip');
+    const allKeys = lsListKeys(KEY_PREFIX);
+    const suffix = `-${pad(month)}-${pad(day)}`;
+    const matches = allKeys
+      .filter(k => k.endsWith(suffix))
+      .map(k=>{
+        const dateStr = k.replace(KEY_PREFIX,'');
+        const yr = parseInt(dateStr.split('-')[0],10);
+        return {key:k, year:yr};
+      })
+      .filter(m=>m.year !== excludeYear)
+      .sort((a,b)=>b.year - a.year);
+
+    if(matches.length===0){
+      stripEl.innerHTML = `<div class="strip-empty">아직 비교할 기록이 없어요.</div>`;
+      return;
+    }
+    const valid = matches.map(m=>{
+      const entry = parseEntry(lsGet(m.key));
+      return entry ? {year:m.year, img:entry.img} : null;
+    }).filter(Boolean);
+
+    if(valid.length===0){
+      stripEl.innerHTML = `<div class="strip-empty">아직 비교할 기록이 없어요.</div>`;
+      return;
+    }
+    stripEl.innerHTML = valid.map(v=>`
+      <div class="strip-item">
+        <div class="strip-frame"><img src="${v.img}" alt="${v.year}년"/></div>
+        <div class="strip-year">${v.year}</div>
+      </div>
+    `).join('');
+  }
+
+  let pendingDate = null;
+  function triggerUpload(dateStr){
+    pendingDate = dateStr;
+    fileInput.value = '';
+    fileInput.click();
+  }
+
+  fileInput.addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file || !pendingDate) return;
+    const dataUrl = await resizeImage(file);
+    const ok = lsSet(`${KEY_PREFIX}${pendingDate}`, JSON.stringify({img:dataUrl, savedAt:Date.now()}));
+    if(!ok){
+      alert('저장 공간이 부족해요. 백업 내보내기로 오래된 기록을 따로 저장해두고, 일부 사진을 정리해주세요.');
+      return;
+    }
+    monthCache[pendingDate] = dataUrl;
+    refreshAfterChange(pendingDate);
+  });
+
+  function deletePhoto(dateStr){
+    if(!confirm('이 날짜의 사진을 삭제할까요?')) return;
+    lsDelete(`${KEY_PREFIX}${dateStr}`);
+    monthCache[dateStr] = null;
+    refreshAfterChange(dateStr);
+  }
+
+  function refreshAfterChange(dateStr){
+    const target = calendarGrid.querySelector(`[data-date="${dateStr}"]`);
+    if(target){
+      const img = monthCache[dateStr];
+      target.classList.toggle('has-photo', !!img);
+      target.classList.toggle('empty-day', !img);
+      target.innerHTML = `${img?`<img src="${img}" alt=""/>`:''}<span class="daynum">${parseInt(dateStr.split('-')[2],10)}</span>`;
+      if(selectedKey===dateStr) target.classList.add('selected');
+    }
+    renderDetail(dateStr);
+    if(currentTab==='list') renderList();
+  }
+
+  function switchTab(tab){
+    currentTab = tab;
+    document.getElementById('tabCal').classList.toggle('active', tab==='cal');
+    document.getElementById('tabList').classList.toggle('active', tab==='list');
+    document.getElementById('calView').style.display = tab==='cal' ? '' : 'none';
+    document.getElementById('listView').style.display = tab==='list' ? '' : 'none';
+    if(tab==='list') renderList();
+  }
+
+  document.getElementById('tabCal').onclick = ()=>switchTab('cal');
+  document.getElementById('tabList').onclick = ()=>switchTab('list');
+
+  document.getElementById('prevBtn').onclick = ()=>{
+    viewMonth--; if(viewMonth<0){viewMonth=11; viewYear--;}
+    selectedKey = null;
+    renderCalendar();
+    if(currentTab==='list') renderList();
+  };
+  document.getElementById('nextBtn').onclick = ()=>{
+    viewMonth++; if(viewMonth>11){viewMonth=0; viewYear++;}
+    selectedKey = null;
+    renderCalendar();
+    if(currentTab==='list') renderList();
+  };
+  document.getElementById('todayBtn').onclick = ()=>{
+    viewYear = today.getFullYear(); viewMonth = today.getMonth();
+    selectedKey = null;
+    renderCalendar();
+    if(currentTab==='list') renderList();
+  };
+
+  // backup export / import
+  document.getElementById('exportBtn').onclick = ()=>{
+    const keys = lsListKeys(KEY_PREFIX);
+    if(keys.length===0){ showToast('백업할 기록이 없어요'); return; }
+    const data = {};
+    keys.forEach(k=>{ data[k] = lsGet(k); });
+    const blob = new Blob([JSON.stringify(data)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `outfit-log-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('백업 파일을 내보냈어요');
+  };
+
+  document.getElementById('importBtn').onclick = ()=>{
+    importInput.value = '';
+    importInput.click();
+  };
+  importInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try{
+        const data = JSON.parse(ev.target.result);
+        let count = 0;
+        Object.entries(data).forEach(([k,v])=>{
+          if(k.startsWith(KEY_PREFIX)){ lsSet(k, v); count++; }
+        });
+        showToast(`${count}개 기록을 가져왔어요`);
+        renderCalendar();
+        if(currentTab==='list') renderList();
+      }catch(err){
+        alert('백업 파일을 읽을 수 없어요. 파일 형식을 확인해주세요.');
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  renderCalendar();
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+})();
+</script>
+</body>
+</html>
