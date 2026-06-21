@@ -1,4 +1,4 @@
-const CACHE_NAME = 'outfit-log-v2';
+const CACHE_NAME = 'outfit-log-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -17,11 +17,11 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// 네트워크를 먼저 시도해서 항상 최신 버전을 받아오고,
-// 오프라인일 때만 캐시된 버전으로 대체한다.
+// cache: 'no-store' 로 브라우저 자체 HTTP 캐시까지 건너뛰고 항상 서버에서 새로 받아온다.
+// 오프라인일 때만 서비스워커 캐시로 대체한다.
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-store' })
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy));
