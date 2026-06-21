@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" href="icon-192.png" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropper/1.6.1/cropper.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" />
 <title>코디 로그</title>
 <style>
   :root{
@@ -283,7 +283,7 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropper/1.6.1/cropper.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 <script>
 (function(){
   const KEY_PREFIX = 'outfit:';
@@ -364,6 +364,12 @@
       cropImageEl.src = e.target.result;
       cropOverlay.style.display = 'flex';
       if(cropperInstance){ cropperInstance.destroy(); cropperInstance = null; }
+      if(typeof Cropper === 'undefined'){
+        alert('자르기 도구를 불러오지 못했어요. 인터넷 연결을 확인하고 다시 시도해주세요.');
+        closeCropper();
+        uploadTarget = null;
+        return;
+      }
       cropperInstance = new Cropper(cropImageEl, {
         aspectRatio: 4/5,
         viewMode: 1,
